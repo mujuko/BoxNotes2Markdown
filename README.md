@@ -1,0 +1,2 @@
+# BoxNotes2Markdown
+Box Notesをマークダウン形式に変換してダウンロードするブックマークレットです。
