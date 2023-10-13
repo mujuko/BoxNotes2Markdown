@@ -5,8 +5,7 @@
 // ==/ClosureCompiler==
 
 javascript: (function () {
-  const hasNoContent = (line) =>
-    !line.textContent || line.id === "version-line-id1";
+  const hasContent = (line) => !!line.textContent;
 
   let commentedOut = false;
   const isCommentedOut = (line) => {
@@ -29,20 +28,41 @@ javascript: (function () {
     );
   };
 
-  /**
-   * "hoge1"みたいなクラス名から後ろの数字部分（1）を取得する
-   * @param className "hoge1"
-   * @param prefix "hoge"
-   * @returns classNameからprefixを除いた部分（"hoge1" - "hoge" = 1）
-   */
-  const getSuffixNumber = (className, prefix) =>
-    Number.parseInt(className.substr(prefix.length));
+  const isList = (line) => /^[U,O]L$/.test(line.tagName);
 
   const singleIndent = "  ";
-  const ulClass = "list-bullet";
-  const olClass = "list-number";
-  const isUnorderdList = (line) => line.lastChild.className.startsWith(ulClass);
-  const isOrderedList = (line) => line.lastChild.className.startsWith(olClass);
+  const convertList = (line, indentLevel) => {
+    const ret = Array.from(line.children)
+      .map((li) => {
+        if (li.tagName === "LI") {
+          const symbol = line.tagName === "OL" ? "1." : "*";
+          const prefix = singleIndent.repeat(indentLevel) + symbol + " ";
+          return prefix + li.textContent;
+        }
+
+        if (isList(li)) {
+          return convertList(li, indentLevel + 1);
+        }
+
+        return li.textContent;
+      })
+      .flat();
+
+    //読みやすくするため、リストが終わるたびに改行する
+    if (indentLevel === 0) {
+      ret.push("");
+    }
+    return ret;
+  };
+
+  const isHeading = (line) => /^H([1-3])$/.test(line.tagName);
+
+  const convertHeading = (line) => {
+    const level = Number.parseInt(line.tagName.substr(1)); // "h1" -> 1
+    const prefix = "#".repeat(level) + " ";
+    //読みやすくするため、見出し行の後ろに改行を入れる
+    return [prefix + line.textContent, ""];
+  };
 
   /**
    * * サポートしているもの：
@@ -55,59 +75,47 @@ javascript: (function () {
    *   * テーブル
    *   * リンク
    */
-  const convertToMarkdown = (line) => {
-    let prefix = "";
-    if (isUnorderdList(line)) {
-      const numOfIndents =
-        getSuffixNumber(line.lastChild.className, ulClass) - 1;
-      prefix = singleIndent.repeat(numOfIndents) + "* ";
-
-      //読みやすくするため、新しいリストが始まるたびに改行する
-      if (numOfIndents === 0) {
-        prefix = "\n" + prefix;
-      }
-    } else if (isOrderedList(line)) {
-      const numOfIndents =
-        getSuffixNumber(line.lastChild.className, olClass) - 1;
-      prefix = singleIndent.repeat(numOfIndents) + "1. ";
-    } else if (line.textContent.startsWith("#")) {
-      //読みやすくするため、見出し行は改行する
-      prefix = "\n";
+  const toMarkdown = (line) => {
+    if (isList(line)) {
+      return convertList(line, 0);
     }
 
-    return prefix + line.textContent;
+    if (isHeading(line)) {
+      return convertHeading(line);
+    }
+
+    return [line.textContent];
   };
 
   const download = (text, fileName) => {
     const a = document.createElement("a");
     a.download = fileName;
-    a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    a.href = URL.createObjectURL(
+      new Blob([text], {
+        type: "text/plain",
+      })
+    );
     a.click();
   };
 
-  const main = () => {
-    const result = [];
-    for (const line of document.querySelectorAll(".ace-line")) {
-      if (hasNoContent(line)) {
-        continue;
-      }
-
-      if (isCommentedOut(line)) {
-        continue;
-      }
-
-      result.push(convertToMarkdown(line));
-    }
-
-    if (result[0].startsWith("\n")) {
-      result[0] = result[0].replace("\n", "");
-    }
-
-    download(
-      result.join("\n"),
-      document.getElementById("documentTitle").textContent + ".md"
+  const getLines = () => {
+    return Array.from(
+      document.querySelector(".editor-content-editable > div").children
     );
   };
 
-  main();
+  function getTitle() {
+    return document.querySelector(".document-title").textContent + ".md";
+  }
+
+  const main = () => {
+    const result = getLines()
+      .filter((line) => hasContent(line) && !isCommentedOut(line))
+      .map((line) => toMarkdown(line))
+      .flat();
+
+    download(result.join("\n"), getTitle());
+  };
+
+  return main();
 })();
